@@ -1,0 +1,14 @@
+.DS_Store
+Thumbs.db
+__pycache__/
+*.pyc
+.idea/
+.vscode/
+
+# Nunca versionar configurações, bancos ou cópias de sites reais.
+wp-config.php
+*.sql
+database.jsonl
+config.json
+state.json
+.env
