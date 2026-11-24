@@ -321,7 +321,7 @@ final class F2SB_Engine {
         $oldRoot=$s['source_root']??''; if($oldRoot==='') $oldRoot=$m['root']??'';
         if($oldRoot!=='') {
             $oldRoot=rtrim(str_replace('\\','/',$oldRoot),'/'); $newRoot=rtrim(str_replace('\\','/',$s['root']),'/');
-            if($oldRoot!=='' && $oldRoot!==$newRoot) { $map[$oldRoot]=$newRoot; $map[str_replace('/','\\',$oldRoot)]=str_replace('/','\\',$newRoot); }
+            if($oldRoot!=='' && $oldRoot!==$newRoot) { $map[$oldRoot]=$newRoot; $map[str_replace('/','\\',$oldRoot)]=$newRoot; }
         }
         foreach($map as $a=>$b) {
             $encoded=json_encode($a,JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR); $new=json_encode($b,JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR);
@@ -342,10 +342,28 @@ final class F2SB_Engine {
         if($depth>64) self::fail('Dados serializados excedem 64 níveis. A migração foi interrompida antes da troca do banco.');
         if(strtr($value,$map)===$value) return $value;
         // Leitura estrutural sem unserialize(): nenhum objeto ou método PHP do pacote é executado.
-        if(preg_match('/^(?:[abisOdCrRE]:|N;)/',$value)) {
+        if(preg_match('/^(?:[sOEC]:[0-9]+:"|a:[0-9]+:\{|[bidrR]:[^;]+;|N;)/x',$value)) {
             $offset=0; $result=self::serializedToken($value,$offset,$map,$depth);
             if($offset!==strlen($value)) self::fail('Dados serializados inválidos para migração.');
             return $result;
+        }
+        if(in_array($value[0]??'',['{','[','"'],true)) {
+            $validJSON=true;
+            try { json_decode($value,false,64,JSON_THROW_ON_ERROR|JSON_BIGINT_AS_STRING); }
+            catch(JsonException $e) { $validJSON=false; }
+            if($validJSON) {
+                // Só reescreve tokens de strings: números grandes e a formatação permanecem idênticos.
+                $changed=preg_replace_callback('/"(?:[^"\\\\]|\\\\.)*"/s',static function($m) use($map,$depth) {
+                    $text=json_decode($m[0],true,64,JSON_THROW_ON_ERROR);
+                    $new=self::migrationValue($text,$map,$depth+1);
+                    return $new===$text?$m[0]:json_encode($new,JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR);
+                },$value);
+                if($changed===null) self::fail('Não foi possível adaptar o conteúdo JSON.');
+                return $changed;
+            }
+        }
+        foreach($map as $from=>$to) {
+            if(strlen($from)>2 && $from[1]===':' && $from[2]==='\\' && str_starts_with($value,$from)) { $value=str_replace('\\','/',$value);break; }
         }
         return strtr($value,$map);
     }

@@ -7,6 +7,10 @@ $rewritten=F2SB_Engine::migrationValue(serialize($value),$map);$un=unserialize($
 $x=['url'=>$from];$ref=[&$x,&$x];$u=unserialize(F2SB_Engine::migrationValue(serialize($ref),$map));$u[0]['changed']=1;check($u[1]['changed']===1,'Serialized references remain intact');
 $caught=false;try{F2SB_Engine::migrationValue('s:2:"'.$from.'";',$map);}catch(Throwable $e){$caught=true;}check($caught,'Malformed serialized input rejected');
 $caught=false;try{F2SB_Engine::migrationValue('C:1:"X":'.strlen($from).':{'.$from.'}',$map);}catch(Throwable $e){$caught=true;}check($caught,'Custom serialization needing changes fails safely');
+$windows=F2SB_Engine::migrationReplacements(['home'=>$from,'siteurl'=>$from,'root'=>'C:\\Users\\Fabio\\Local Sites\\origin\\app\\public'],['home'=>$to,'siteurl'=>$to,'root'=>'/var/www/newsite']);
+$windowsData=serialize(['path'=>'C:\\Users\\Fabio\\Local Sites\\origin\\app\\public\\wp-content','json'=>json_encode(['path'=>'C:\\Users\\Fabio\\Local Sites\\origin\\app\\public'])]);
+$windowsResult=unserialize(F2SB_Engine::migrationValue($windowsData,$windows));check($windowsResult['path']==='/var/www/newsite/wp-content','Windows source root becomes a valid Linux destination path');check(json_decode($windowsResult['json'],true)['path']==='/var/www/newsite','Escaped Windows root in JSON becomes Linux destination root');
+$largeJSON='{"id":922337203685477580812345,"url":"https://example.test/x"}';$changedJSON=F2SB_Engine::migrationValue($largeJSON,$map);check(str_contains($changedJSON,'922337203685477580812345') && str_contains($changedJSON,$to.'/x'),'JSON numeric precision preserved during replacement');
 // Real database migration into a different database, user, password, URL and prefix.
 $admin=new mysqli('127.0.0.1','root','','',13306);
 foreach(['f2_origin','f2_destination'] as $name){$admin->query('DROP DATABASE IF EXISTS '.$name);$admin->query('CREATE DATABASE '.$name.' CHARACTER SET utf8mb4');}
