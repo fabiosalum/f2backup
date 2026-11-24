@@ -62,4 +62,4 @@ O nome do plugin é **F2 Bakup**. A pasta e o nome do asset continuam **f2-backu
 
 ## Licença
 
-[GPL-2.0-or-later](LICENSE). Autor: F2Digital.
+[GPL-2.0-or-later](LICENSE). Autor: Fábio Melo Salum.
