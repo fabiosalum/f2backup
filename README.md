@@ -2,7 +2,7 @@
 
 Backup e restauração do WordPress em um único ZIP. Desenvolvido pela **F2Digital**.
 
-**Versão atual: 1.2.1** · PHP 8.1+ · WordPress 6.4+ · GPL-2.0-or-later
+**Versão atual: 1.2.2** · PHP 8.1+ · WordPress 6.4+ · GPL-2.0-or-later
 
 ## Instalação
 
@@ -24,15 +24,9 @@ Abra **Ferramentas → F2 Bakup**.
 - Atualização manual por Releases deste repositório, com validação do ZIP e do SHA-256.
 - Compatibilidade com porta e socket efetivos do PHP/WordPress, inclusive ambientes LocalWP.
 
-## Configurar as atualizações
+## Atualizar o plugin
 
-Na seção **Atualizações do plugin**, salve:
-
-```text
-fabiosalum/f2backup
-```
-
-Use **Verificar atualizações** e, quando houver uma versão superior, **Instalar nova versão**. Não há instalação automática nos sites.
+Clique em **Atualizar plugin**. O botão consulta a última Release estável de `fabiosalum/f2backup` e pede confirmação antes de instalar uma versão superior. O repositório fica fixado no código, sem campo de edição ou opção no painel. Não há instalação automática nos sites.
 
 ## Criar um ponto de retorno
 

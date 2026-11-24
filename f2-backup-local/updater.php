@@ -3,14 +3,9 @@ if(!defined('ABSPATH')) exit;
 
 final class F2SB_Updater {
     const PLUGIN='f2-backup-local/f2-backup-local.php';
-    public static function repository($value) {
-        $value=trim($value);
-        if(str_starts_with($value,'https://github.com/')) $value=substr($value,19);
-        $value=preg_replace('/\.git$/','',rtrim($value,'/'));
-        if(!preg_match('~^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$~D',$value)) F2SB_Engine::fail('Informe https://github.com/usuario/repositorio ou usuario/repositorio.');
-        return $value;
-    }
-    public static function check($repo) {
+    const REPOSITORY='fabiosalum/f2backup';
+    public static function check() {
+        $repo=self::REPOSITORY;
         $response=wp_safe_remote_get('https://api.github.com/repos/'.$repo.'/releases/latest',[
             'timeout'=>25,'redirection'=>0,'limit_response_size'=>1048576,
             'headers'=>['Accept'=>'application/vnd.github+json','X-GitHub-Api-Version'=>'2022-11-28','User-Agent'=>'F2-Backup-Local/'.F2SB_Engine::VERSION]
@@ -54,9 +49,10 @@ final class F2SB_Updater {
             foreach(['engine.php','updater.php','views/dashboard.php','assets/admin.js','assets/admin.css','assets/recovery.html'] as $name) if($zip->locateName('f2-backup-local/'.$name)===false) F2SB_Engine::fail('Pacote incompleto: '.$name);
         } finally {$zip->close();}
     }
-    public static function install($repo) {
+    public static function install() {
+        $repo=self::REPOSITORY;
         $release=get_transient('f2sb_manual_release');
-        if(!$release || $release['repository']!==$repo || !$release['available']) F2SB_Engine::fail('Verifique as atualizações novamente antes de instalar.');
+        if(!$release || ($release['repository']??'')!==$repo || empty($release['available']) || !version_compare($release['version']??'0',F2SB_Engine::VERSION,'>') || !str_starts_with($release['url']??'','https://github.com/'.$repo.'/releases/download/')) F2SB_Engine::fail('Verifique as atualizações novamente antes de instalar.');
         if(defined('DISALLOW_FILE_MODS') && DISALLOW_FILE_MODS) F2SB_Engine::fail('A hospedagem bloqueou alterações de arquivos.');
         require_once ABSPATH.'wp-admin/includes/file.php';
         require_once ABSPATH.'wp-admin/includes/plugin.php';
@@ -92,16 +88,9 @@ final class F2SB_Updater {
         }
     }
     public static function handle($op) {
-        $repo=get_option('f2sb_github_repository','');
-        if($op==='update_settings') return ['repository'=>$repo,'version'=>F2SB_Engine::VERSION];
-        if($op==='update_save') {
-            $repo=self::repository(wp_unslash($_POST['repository']??''));
-            update_option('f2sb_github_repository',$repo,false); delete_transient('f2sb_manual_release');
-            return ['repository'=>$repo,'message'=>'Repositório salvo.'];
-        }
-        if(!$repo) F2SB_Engine::fail('Configure o repositório na seção Atualizações.');
-        if($op==='update_check') return self::check($repo);
-        if($op==='update_install') return self::install($repo);
+        // A origem não vem de opções do WordPress nem de parâmetros enviados pelo painel.
+        if($op==='update_check') return self::check();
+        if($op==='update_install') return self::install();
         F2SB_Engine::fail('Ação de atualização inválida.');
     }
 }

@@ -1,3 +1,12 @@
+## F2 Bakup 1.2.2
+
+- Repositório de atualização fixado em `fabiosalum/f2backup`, sem configuração editável no painel ou por parâmetros da API.
+- Um único botão **Atualizar plugin** consulta a versão e solicita confirmação antes de instalar.
+- Validação de integridade SHA-256 e instalação pelo atualizador nativo do WordPress preservadas.
+- Opções antigas de repositório são ignoradas; requisições para salvar outra origem são recusadas.
+
+Envie **f2-backup-local.zip** pelo instalador do WordPress e escolha **Substituir o atual pelo enviado**, ou atualize pelo botão da instalação anterior configurada para este repositório.
+
 ## F2 Bakup 1.2.1
 
 - Nome público alterado para F2 Bakup, preservando a identificação interna e os backups existentes.

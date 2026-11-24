@@ -4,7 +4,7 @@
   const $=id=>document.getElementById('f2sb-'+id);
   const root=document.querySelector('.f2sb');
   const issue=root.dataset.issue==='1';
-  let active='',busy=false,jobs=[],release=null,repository='';
+  let active='',busy=false,jobs=[];
   const phases={pause:'Preparando manutenção',settle:'Aguardando requisições',db:'Copiando banco de dados',files:'Copiando arquivos',check_db:'Verificando banco',check_files:'Verificando arquivos',seal:'Finalizando ZIP',inspect:'Lendo pacote',validate:'Validando ZIP',verify:'Conferindo integridade',ready:'Pronto para restaurar',done:'Concluído',failed:'Interrompido',cancelled:'Cancelado',rolled_back:'Revertido',upload:'Enviando arquivo'};
   const size=n=>{const u=['B','KB','MB','GB','TB'];let i=0;n=Number(n)||0;while(n>=1024&&i<4){n/=1024;i++;}return n.toFixed(i?1:0)+' '+u[i];};
   const date=v=>new Date(v).toLocaleString('pt-BR',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
@@ -16,7 +16,7 @@
     try{json=JSON.parse(text);}catch{throw new Error('Resposta inesperada do servidor. Confira os logs PHP e o limite de memória. '+text.slice(0,400));}
     if(!json.success)throw new Error(json.data?.message||'A operação falhou.');return json.data;
   }
-  function setBusy(value){busy=value;['backup','upload','restore','update-check','update-install','update-save'].forEach(id=>$(id).disabled=value||issue);}
+  function setBusy(value){busy=value;['backup','upload','restore','update-plugin'].forEach(id=>$(id).disabled=value||issue);}
   function reveal(){ $('progress').hidden=false; $('progress').scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'nearest'}); }
   function show(s){
     $('progress').hidden=false;$('title').textContent=phases[s.phase]||s.phase;$('status').textContent=s.error||s.message||'Mantenha esta aba aberta.';
@@ -65,10 +65,18 @@
   $('upload').onclick=async()=>{if(busy)return;const file=$('file').files[0];if(!file){$('file').click();return;}setBusy(true);$('confirm').hidden=true;reveal();$('title').textContent='Enviando seu ponto de retorno';try{const {id}=await api('start_upload',{size:file.size});active=id;for(let offset=0;offset<file.size;offset+=1048576){await api('upload_chunk',{id,offset,chunk:file.slice(offset,offset+1048576)});$('bar').max=file.size;$('bar').value=Math.min(offset+1048576,file.size);$('status').textContent=`${size(Math.min(offset+1048576,file.size))} de ${size(file.size)}`;}await run(id);}catch(e){error(e);}finally{setBusy(false);}};
   $('restore').onclick=async()=>{if(busy)return;if($('word').value!=='RESTAURAR'){$('word').focus();return;}setBusy(true);try{executor(await api('start_restore',{id:active,confirm:'RESTAURAR'}));}catch(e){error(e);}};
   $('refresh').onclick=()=>{if(!busy)list().catch(error);};$('filter').onchange=render;
-  document.querySelectorAll('.f2sb-nav>a').forEach(a=>a.onclick=()=>{document.querySelectorAll('.f2sb-nav>a').forEach(b=>b.classList.remove('active'));a.classList.add('active');if(a.hash==='#f2sb-updates')$('updates').open=true;});
-  function updateMessage(text){$('updates').open=true;$('update-result').hidden=false;$('update-result').textContent=text;}
-  $('update-save').onclick=async()=>{if(busy)return;setBusy(true);try{const d=await api('update_save',{repository:$('repository').value});repository=d.repository;$('repository').value=repository;$('update-install').hidden=true;updateMessage(d.message);}catch(e){updateMessage(e.message);}finally{setBusy(false);}};
-  $('update-check').onclick=async()=>{if(busy)return;$('updates').open=true;$('updates').scrollIntoView({block:'nearest',behavior:'smooth'});if(!repository){$('repository').focus();updateMessage('Informe e salve o repositório público para habilitar as atualizações manuais.');return;}setBusy(true);updateMessage('Consultando a última versão publicada…');try{release=await api('update_check');$('update-install').hidden=!release.available;updateMessage(release.available?`Nova versão disponível: ${release.version}\nVersão instalada: ${release.current}\nO pacote será conferido por SHA-256 antes da instalação.`:`Você já está na versão mais recente: ${release.current}.`);}catch(e){updateMessage(e.message);$('update-install').hidden=true;}finally{setBusy(false);}};
-  $('update-install').onclick=async()=>{if(busy||!release?.available||!confirm(`Instalar a versão ${release.version} do F2 Bakup? O código do plugin será substituído. Mantenha uma cópia recente do site.`))return;setBusy(true);updateMessage('Conferindo e instalando o pacote…');try{const d=await api('update_install');updateMessage(d.message);$('update-install').hidden=true;setTimeout(()=>location.reload(),1800);}catch(e){updateMessage(e.message);setBusy(false);}};
-  list().catch(error);api('update_settings').then(d=>{repository=d.repository;$('repository').value=repository;}).catch(()=>{});
+  document.querySelectorAll('.f2sb-nav>a').forEach(a=>a.onclick=()=>{document.querySelectorAll('.f2sb-nav>a').forEach(b=>b.classList.remove('active'));a.classList.add('active');});
+  function updateMessage(text){$('update-result').hidden=false;$('update-result').textContent=text;}
+  $('update-plugin').onclick=async()=>{
+    if(busy)return;setBusy(true);$('update-plugin').textContent='Verificando…';updateMessage('Verificando a versão disponível…');
+    try{
+      const release=await api('update_check');
+      if(!release.available){updateMessage(`Seu plugin está atualizado. Versão instalada: ${release.current}.`);return;}
+      if(!confirm(`Atualizar F2 Bakup da versão ${release.current} para ${release.version}? O código do plugin será substituído. Mantenha uma cópia recente do site.`)){updateMessage('Atualização cancelada. A versão atual foi mantida.');return;}
+      $('update-plugin').textContent='Atualizando…';updateMessage('Conferindo a integridade do pacote e instalando a nova versão…');
+      const result=await api('update_install');updateMessage(result.message);setTimeout(()=>location.reload(),1800);
+    }catch(e){updateMessage(e.message);}
+    finally{setBusy(false);$('update-plugin').textContent='Atualizar plugin';}
+  };
+  list().catch(error);
 })();

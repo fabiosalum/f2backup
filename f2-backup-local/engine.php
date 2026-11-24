@@ -3,7 +3,7 @@
 if (!defined('F2SB_ENGINE')) { http_response_code(403); exit; }
 
 final class F2SB_Engine {
-    const VERSION = '1.2.1';
+    const VERSION = '1.2.2';
     const FORMAT = 'f2sb-1';
     const CHUNK = 1048576;
     public static function fail($message) { throw new RuntimeException($message); }

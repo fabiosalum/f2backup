@@ -1,4 +1,4 @@
-# F2 Bakup — 1.2.1
+# F2 Bakup — 1.2.2
 
 Um ponto de retorno para seu WordPress, com painel próprio, arquivo ZIP, restauração completa e atualizações manuais pelo botão.
 
@@ -76,18 +76,16 @@ Teste primeiro em uma cópia isolada com o mesmo endereço configurado, por exem
 
 Não há consulta ou instalação automática em segundo plano. Não exige conta de licença nem assinatura. A conexão externa ocorre quando você usa o botão de atualização.
 
-### Configurar uma vez
+### Botão de atualização
 
-1. Crie um **repositório público** para este plugin.
-2. Em **Atualizações do plugin**, informe `https://github.com/usuario/repositorio` e salve.
-3. O botão **Verificar atualizações** consulta a última Release estável desse repositório.
+O repositório `fabiosalum/f2backup` está fixado no código. O painel não permite alterar a origem e ignora opções antigas de repositório. Clique em **Atualizar plugin** para consultar a versão e confirme a instalação quando houver uma versão superior.
 
 ### Publicar uma versão
 
 1. Edite o código e aumente a versão no cabeçalho de `f2-backup-local.php` e em `F2SB_Engine::VERSION` no `engine.php`, por exemplo `1.3.0`.
 2. Empacote a pasta inteira mantendo a estrutura abaixo. O ZIP deve se chamar **f2-backup-local.zip**.
 3. Crie uma Release estável com tag **v1.3.0** e anexe o ZIP como asset. O arquivo automático **Source code (zip)** do GitHub não é utilizado.
-4. No WordPress, clique em **Verificar atualizações** e depois **Instalar nova versão**.
+4. No WordPress, clique em **Atualizar plugin** e confirme a instalação.
 
 ```text
 f2-backup-local.zip

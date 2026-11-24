@@ -2,7 +2,7 @@
 /**
  * Plugin Name: F2 Bakup
  * Description: Backup completo em ZIP e restauração local em etapas, sem serviço externo ou licença.
- * Version: 1.2.1
+ * Version: 1.2.2
  * Requires at least: 6.4
  * Requires PHP: 8.1
  * Author: F2Digital
