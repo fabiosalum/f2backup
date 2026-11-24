@@ -1,3 +1,15 @@
+## F2 Bakup 1.3.0
+
+- Importação de backups em um WordPress novo, inclusive outro domínio, banco, prefixo e hospedagem.
+- Conexão e `wp-config.php` do destino preservados na migração.
+- Substituição de URLs e caminhos em texto, JSON e serialização PHP sem executar objetos do pacote.
+- Tabelas, funções e permissões do administrador adaptadas ao prefixo do destino.
+- Configurações do servidor, drop-ins de cache/banco e a versão atual do F2 Bakup preservados no destino.
+- Backups anteriores continuam aceitos; campo opcional de caminho de origem para arquivos sem esse metadado.
+- Validação, reversão antes da troca final e reconstituição das regras de links permanentes mantidas.
+
+No WordPress novo, atualize este plugin, mantenha **Importar em um novo WordPress** marcado, envie o ZIP antigo e confirme **RESTAURAR**. Ao concluir, use o usuário e a senha do backup. Os arquivos do núcleo também vêm do backup, incluindo a versão do WordPress nele contida.
+
 ## F2 Bakup 1.2.2
 
 - Repositório de atualização fixado em `fabiosalum/f2backup`, sem configuração editável no painel ou por parâmetros da API.

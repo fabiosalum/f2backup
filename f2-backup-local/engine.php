@@ -3,7 +3,7 @@
 if (!defined('F2SB_ENGINE')) { http_response_code(403); exit; }
 
 final class F2SB_Engine {
-    const VERSION = '1.2.2';
+    const VERSION = '1.3.0';
     const FORMAT = 'f2sb-1';
     const CHUNK = 1048576;
     public static function fail($message) { throw new RuntimeException($message); }
@@ -284,7 +284,7 @@ final class F2SB_Engine {
                 if(feof($h)) $s['phase']='seal';
             } finally { fclose($h); $zip->close(); }
         } elseif ($s['phase'] === 'seal') {
-            $manifest = ['format'=>self::FORMAT, 'version'=>self::VERSION, 'created'=>$s['created'], 'home'=>$s['home'], 'siteurl'=>$s['siteurl'], 'prefix'=>$s['prefix'], 'wp_version'=>$s['wp_version'], 'php'=>PHP_VERSION, 'files'=>$s['files'], 'bytes'=>$s['bytes'], 'rows'=>$s['rows'], 'tables'=>$s['tables'], 'database_sha256'=>hash_file('sha256',$job.'/database.jsonl'), 'index_sha256'=>hash_file('sha256',$job.'/files.jsonl'), 'exclude'=>$s['exclude']];
+            $manifest = ['format'=>self::FORMAT, 'version'=>self::VERSION, 'created'=>$s['created'], 'home'=>$s['home'], 'siteurl'=>$s['siteurl'], 'root'=>$s['root'], 'prefix'=>$s['prefix'], 'wp_version'=>$s['wp_version'], 'php'=>PHP_VERSION, 'files'=>$s['files'], 'bytes'=>$s['bytes'], 'rows'=>$s['rows'], 'tables'=>$s['tables'], 'database_sha256'=>hash_file('sha256',$job.'/database.jsonl'), 'index_sha256'=>hash_file('sha256',$job.'/files.jsonl'), 'exclude'=>$s['exclude']];
             $manifest['full_config']=true; $manifest['connection_fingerprint']=self::fingerprint($cfg);
             $manifest['consistency']=!empty($s['site_paused'])?'maintenance-verified':'verified';
             $manifest['directories']=[];
@@ -306,6 +306,81 @@ final class F2SB_Engine {
             self::releaseMaintenance($s); $s['site_paused']=false;
         }
     }
+    public static function migrationReplacements($m,$s) {
+        $map=[];
+        foreach(['home','siteurl'] as $key) {
+            $from=rtrim($m[$key],'/'); $to=rtrim($s[$key],'/');
+            if(!filter_var($from,FILTER_VALIDATE_URL) || !filter_var($to,FILTER_VALIDATE_URL) || !preg_match('~^https?://~i',$from) || !preg_match('~^https?://~i',$to)) self::fail('Endereço de origem ou destino inválido.');
+            if($from!==$to) {
+                $map[$from]=$to;
+                // Inclui links http/https e relativos ao protocolo usados por editores.
+                $bare=preg_replace('~^https?://~i','',$from);
+                foreach(['http://','https://','//'] as $scheme) if(!isset($map[$scheme.$bare])) $map[$scheme.$bare]=$scheme==='//'?preg_replace('~^https?://~i','//',$to):$to;
+            }
+        }
+        $oldRoot=$s['source_root']??''; if($oldRoot==='') $oldRoot=$m['root']??'';
+        if($oldRoot!=='') {
+            $oldRoot=rtrim(str_replace('\\','/',$oldRoot),'/'); $newRoot=rtrim(str_replace('\\','/',$s['root']),'/');
+            if($oldRoot!=='' && $oldRoot!==$newRoot) { $map[$oldRoot]=$newRoot; $map[str_replace('/','\\',$oldRoot)]=str_replace('/','\\',$newRoot); }
+        }
+        foreach($map as $a=>$b) {
+            $encoded=json_encode($a,JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR); $new=json_encode($b,JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR);
+            $map[substr($encoded,1,-1)]=substr($new,1,-1);
+        }
+        return $map;
+    }
+    public static function migrateCell($value,$table,$column,$s) {
+        $source=$s['manifest']['prefix']; $target=$s['prefix'];
+        // GUIDs identificam conteúdo; não são endereços de navegação a migrar.
+        if($column==='guid') return $value;
+        if(($table===$source.'options' && $column==='option_name') || ($table===$source.'usermeta' && $column==='meta_key')) {
+            if(str_starts_with($value,$source)) $value=$target.substr($value,strlen($source));
+        }
+        return self::migrationValue($value,$s['replacements']);
+    }
+    public static function migrationValue($value,$map,$depth=0) {
+        if($depth>64) self::fail('Dados serializados excedem 64 níveis. A migração foi interrompida antes da troca do banco.');
+        if(strtr($value,$map)===$value) return $value;
+        // Leitura estrutural sem unserialize(): nenhum objeto ou método PHP do pacote é executado.
+        if(preg_match('/^(?:[abisOdCrRE]:|N;)/',$value)) {
+            $offset=0; $result=self::serializedToken($value,$offset,$map,$depth);
+            if($offset!==strlen($value)) self::fail('Dados serializados inválidos para migração.');
+            return $result;
+        }
+        return strtr($value,$map);
+    }
+    private static function serializedToken($v,&$p,$map,$depth) {
+        if($depth>64) self::fail('Dados serializados excedem o limite de profundidade.');
+        $start=$p; $type=$v[$p]??'';
+        if($type==='N' && substr($v,$p,2)==='N;') { $p+=2;return 'N;'; }
+        if(in_array($type,['b','i','d','r','R'],true) && preg_match('/\G[bidrR]:([^;]+);/Ax',$v,$m,0,$p)) { $p+=strlen($m[0]);return $m[0]; }
+        if(in_array($type,['s','E'],true) && preg_match('/\G[sE]:([0-9]+):"/A',$v,$m,0,$p)) {
+            $p+=strlen($m[0]); $len=(int)$m[1]; $text=substr($v,$p,$len); $p+=$len;
+            if(strlen($text)!==$len || substr($v,$p,2)!=='";') self::fail('Comprimento de string serializada inválido.'); $p+=2;
+            $text=$type==='s'?self::migrationValue($text,$map,$depth+1):$text;
+            return $type.':'.strlen($text).':"'.$text.'";';
+        }
+        if($type==='a' && preg_match('/\Ga:([0-9]+):\{/A',$v,$m,0,$p)) {
+            $p+=strlen($m[0]); $out=$m[0]; $count=(int)$m[1];
+            if($count>strlen($v)) self::fail('Array serializado inválido.');
+            for($i=0;$i<$count*2;$i++) $out.=self::serializedToken($v,$p,$map,$depth+1);
+            if(($v[$p]??'')!=='}') self::fail('Array serializado incompleto.'); $p++;return $out.'}';
+        }
+        if($type==='O' && preg_match('/\GO:([0-9]+):"/A',$v,$m,0,$p)) {
+            $p+=strlen($m[0]); $len=(int)$m[1]; $class=substr($v,$p,$len);$p+=$len;
+            if(!preg_match('/\G":([0-9]+):\{/A',$v,$n,0,$p)) self::fail('Objeto serializado inválido.');$p+=strlen($n[0]);
+            $out='O:'.$len.':"'.$class.$n[0];$count=(int)$n[1];
+            if($count>strlen($v)) self::fail('Objeto serializado grande demais.');
+            for($i=0;$i<$count;$i++) {
+                // Nomes de propriedades, inclusive privadas, permanecem idênticos.
+                $out.=self::serializedToken($v,$p,[],$depth+1);
+                $out.=self::serializedToken($v,$p,$map,$depth+1);
+            }
+            if(($v[$p]??'')!=='}') self::fail('Objeto serializado incompleto.');$p++;return $out.'}';
+        }
+        // Serialização customizada exige o código do plugin de origem. Não adivinha seu formato.
+        self::fail('Formato serializado não suportado ou corrompido na migração (posição '.$start.'). Nenhuma tabela ativa foi substituída.');
+    }
     public static function inspect($job, &$s) {
         $zip = self::zip($job.'/backup.zip');
         try {
@@ -317,10 +392,14 @@ final class F2SB_Engine {
             if (!is_array($m['tables']) || count($m['tables']) > 10000 || !preg_match('/^[a-zA-Z0-9_]+$/D', $m['prefix'])) self::fail('Lista de tabelas inválida.');
             foreach ($m['tables'] as $t) if (!is_string($t) || !str_starts_with($t,$m['prefix']) || strlen($t)>64) self::fail('Nome de tabela inválido.');
             if (count(array_unique($m['tables'])) !== count($m['tables'])) self::fail('Tabelas duplicadas no manifesto.');
-            if (rtrim($m['home'],'/') !== rtrim($s['home'],'/') || rtrim($m['siteurl'],'/') !== rtrim($s['siteurl'],'/') || $m['prefix'] !== $s['prefix']) self::fail('Este pacote pertence a outro domínio, caminho ou prefixo. A versão 1 restaura somente no mesmo endereço e prefixo.');
-            if(!empty($m['full_config'])) {
-                if(!isset($m['connection_fingerprint']) || !hash_equals($m['connection_fingerprint'],self::fingerprint(self::json($job.'/config.json')))) self::fail('A conexão com o banco mudou desde o backup. A restauração do wp-config.php original exige as mesmas credenciais. Ajuste o ambiente antes de continuar.');
-                if($zip->locateName('site/wp-config.php')===false) self::fail('wp-config.php ausente no backup completo.');
+            $cfg=self::json($job.'/config.json');
+            $sameConnection=isset($m['connection_fingerprint']) && hash_equals($m['connection_fingerprint'],self::fingerprint($cfg));
+            $s['migration']=!empty($s['requested_migration']) || rtrim($m['home'],'/')!==rtrim($s['home'],'/') || rtrim($m['siteurl'],'/')!==rtrim($s['siteurl'],'/') || $m['prefix']!==$s['prefix'] || (!empty($m['full_config']) && !$sameConnection) || (isset($m['root']) && $m['root']!==$s['root']);
+            if(!empty($m['full_config']) && $zip->locateName('site/wp-config.php')===false) self::fail('wp-config.php ausente no backup completo.');
+            if($s['migration']) {
+                if(!is_file($s['root'].'/wp-config.php')) self::fail('A migração exige um WordPress instalado com wp-config.php no destino.');
+                $s['destination_config_sha256']=hash_file('sha256',$s['root'].'/wp-config.php');
+                $s['replacements']=self::migrationReplacements($m,$s);
             }
             foreach($m['directories']??[] as $dir) self::relative($dir['path']);
             if ($m['files'] < 1 || $m['bytes'] < 0 || $zip->numFiles !== (int)$m['files'] + 3) self::fail('Contagem de arquivos incompatível.');
@@ -392,7 +471,14 @@ final class F2SB_Engine {
         $tag=substr(bin2hex(random_bytes(8)),0,12);
         foreach ($s['manifest']['tables'] as $i=>$t) $map[$t]='f2sb_n_'.$tag.'_'.$i;
         foreach ($existing as $i=>$t) $old[$t]='f2sb_o_'.$tag.'_'.$i;
-        $s['map']=$map; $s['old']=$old; $s['db_offset']=0; $s['db_rows']=0; $s['db_table']=null; $s['db_seen']=[];
+        $destinations=[];
+        foreach($map as $source=>$temp) {
+            $target=!empty($s['migration'])?$s['prefix'].substr($source,strlen($s['manifest']['prefix'])):$source;
+            if(strlen($target)>64 || !preg_match('/^[a-zA-Z0-9_]+$/D',$target) || in_array($target,$destinations,true)) self::fail('Nome de tabela incompatível com o prefixo do destino.');
+            $destinations[$source]=$target;
+        }
+        if(!empty($s['migration']) && !hash_equals($s['destination_config_sha256'],hash_file('sha256',$s['root'].'/wp-config.php'))) self::fail('O wp-config.php do destino mudou. Envie e valide novamente o backup.');
+        $s['destinations']=$destinations; $s['map']=$map; $s['old']=$old; $s['db_offset']=0; $s['db_rows']=0; $s['db_table']=null; $s['db_seen']=[];
         $s['phase']='import'; $s['destructive']=true; $s['applied']=0; $s['index_offset']=0;
         $s['message']='Restaurando. Mantenha esta aba aberta. O site ficará em manutenção.';
         self::mkdir($job.'/undo');
@@ -427,15 +513,20 @@ final class F2SB_Engine {
                     foreach ($s['map'] as $a=>$b) $replace[self::ident($a)]=self::ident($b);
                     $sql=strtr($r['sql'],$replace);
                     $sql=preg_replace_callback('/CONSTRAINT\s+`([^`]+)`/i',static fn($m)=>'CONSTRAINT '.self::ident('f2_'.substr(hash('sha256',$temp.$m[1]),0,32)),$sql);
-                    $db->query($sql); $s['db_columns']=$r['columns']; $s['db_table']=$table;
+                    $db->query($sql);
+                    $s['text_columns']=[];
+                    $columns=$db->query('SHOW FULL COLUMNS FROM '.self::ident($temp));
+                    while($column=$columns->fetch_assoc()) if(preg_match('/^(?:var)?char|text|^json|^enum|^set/i',$column['Type']) && $column['Key']!=='PRI') $s['text_columns'][]=$column['Field'];
+                    $s['db_columns']=$r['columns']; $s['db_table']=$table;
                 } elseif ($r['kind']==='row') {
                     if ($s['db_table']!==$table || count($r['values'])!==count($s['db_columns'])) self::fail('Linha do banco inválida.');
                     $vals=[];
-                    foreach ($r['values'] as $v) {
+                    foreach ($r['values'] as $columnIndex=>$v) {
                         if ($v === null) $vals[]='NULL';
                         else {
                             $decoded=base64_decode($v,true);
                             if ($decoded===false) self::fail('Dados binários inválidos.');
+                            if(!empty($s['migration']) && in_array($s['db_columns'][$columnIndex],$s['text_columns'],true)) $decoded=self::migrateCell($decoded,$table,$s['db_columns'][$columnIndex],$s);
                             $vals[]="X'".bin2hex($decoded)."'";
                         }
                     }
@@ -450,10 +541,19 @@ final class F2SB_Engine {
             if (feof($h)) {
                 if ($s['db_table']!==null || count($s['db_seen'])!==count($s['map'])) self::fail('Banco incompleto no pacote.');
                 // Impede pacote com URLs adulteradas ou incompatíveis.
-                $options=$s['map'][$s['prefix'].'options'] ?? null;
+                $options=$s['map'][$s['manifest']['prefix'].'options'] ?? null;
                 if (!$options) self::fail('Tabela de opções ausente.');
                 $r=$db->query('SELECT option_name, option_value FROM '.self::ident($options)." WHERE option_name IN ('home','siteurl')");
                 $urls=[]; while($row=$r->fetch_assoc()) $urls[$row['option_name']]=rtrim($row['option_value'],'/');
+                if(!empty($s['migration'])) {
+                    if(!isset($urls['home'],$urls['siteurl'])) self::fail('Endereços obrigatórios ausentes na tabela de opções.');
+                    foreach(['home','siteurl'] as $key) {
+                        $db->query('UPDATE '.self::ident($options)." SET option_value='".$db->real_escape_string(rtrim($s[$key],'/'))."' WHERE option_name='".$key."'");
+                        $urls[$key]=rtrim($s[$key],'/');
+                    }
+                    // Caches serializados e regras antigas devem ser regenerados pelo destino.
+                    $db->query('DELETE FROM '.self::ident($options)." WHERE option_name='rewrite_rules' OR LEFT(option_name,11)='_transient_' OR LEFT(option_name,16)='_site_transient_'");
+                }
                 if (($urls['home']??'')!==rtrim($s['home'],'/') || ($urls['siteurl']??'')!==rtrim($s['siteurl'],'/')) self::fail('URLs do banco não correspondem ao site.');
                 $s['phase']='directories'; $s['dir_i']=0;
             }
@@ -483,7 +583,7 @@ final class F2SB_Engine {
     public static function applyDirectories($job,&$s) {
         $list=$s['manifest']['directories']??[]; $end=microtime(true)+3;
         while($s['dir_i']<count($list) && microtime(true)<$end) {
-            $r=$list[$s['dir_i']]; $to=self::target($s['root'],$r['path']);
+            $r=$list[$s['dir_i']]; if(self::protectedPath($r['path'],$s)) {$s['dir_i']++;continue;} $to=self::target($s['root'],$r['path']);
             if(is_file($to)) { self::preserve($job,$s['root'],$r['path']); if(!unlink($to)) self::fail('Falha ao substituir arquivo por pasta.'); }
             $existed=is_dir($to); self::journalDir($job,$r['path'],$existed,$existed?(fileperms($to)&0777):0755);
             if(!$existed && !mkdir($to,0755,true)) self::fail('Falha ao criar diretório do backup.');
@@ -496,7 +596,7 @@ final class F2SB_Engine {
         $list=$s['manifest']['directories']??[]; $end=microtime(true)+3;
         if(!isset($s['dir_finish_i'])) $s['dir_finish_i']=count($list)-1;
         while($s['dir_finish_i']>=0 && microtime(true)<$end) {
-            $r=$list[$s['dir_finish_i']];
+            $r=$list[$s['dir_finish_i']]; if(self::protectedPath($r['path'],$s)) {$s['dir_finish_i']--;continue;}
             if(!chmod(self::target($s['root'],$r['path']),$r['mode']&0777)) self::fail('Falha ao recuperar permissões da pasta.');
             $s['dir_finish_i']--;
         }
@@ -524,6 +624,10 @@ final class F2SB_Engine {
         if(function_exists('opcache_invalidate')) @opcache_invalidate($to,true);
     }
     public static function protectedPath($rel,$s) {
+        if(!empty($s['migration'])) {
+            // Conexão, caches e configurações do servidor pertencem à hospedagem de destino.
+            if(in_array($rel,['wp-config.php','.htaccess','web.config','.user.ini','php.ini','wordfence-waf.php','wp-content/db.php','wp-content/object-cache.php','wp-content/advanced-cache.php'],true) || $rel==='wp-content/plugins/f2-backup-local' || str_starts_with($rel,'wp-content/plugins/f2-backup-local/')) return true;
+        }
         return ($rel==='wp-config.php' && empty($s['manifest']['full_config'])) || self::excluded($rel,$s);
     }
     public static function apply($job,&$s) {
@@ -586,7 +690,7 @@ final class F2SB_Engine {
         $db=self::db($cfg); $db->query('SET FOREIGN_KEY_CHECKS=0'); $pairs=[];
         try {
             foreach ($s['old'] as $a=>$b) $pairs[]=self::ident($a).' TO '.self::ident($b);
-            foreach ($s['map'] as $a=>$b) $pairs[]=self::ident($b).' TO '.self::ident($a);
+            foreach ($s['map'] as $a=>$b) $pairs[]=self::ident($b).' TO '.self::ident($s['destinations'][$a]??$a);
             // Checkpoint anterior ao RENAME permite reconhecer uma troca já concluída.
             $s['phase']='switch_pending'; self::save($job.'/state.json',$s);
             $db->query('RENAME TABLE '.implode(', ',$pairs));
@@ -599,7 +703,7 @@ final class F2SB_Engine {
             $present=[]; $res=$db->query('SHOW TABLES'); while($r=$res->fetch_row()) $present[$r[0]]=true;
             $staged=0; foreach($s['map'] as $temp) if(isset($present[$temp])) $staged++;
             if ($staged===0) {
-                foreach($s['map'] as $original=>$temp) if(!isset($present[$original])) self::fail('Tabela restaurada ausente. Consulte a hospedagem.');
+                foreach($s['map'] as $original=>$temp) if(!isset($present[$s['destinations'][$original]??$original])) self::fail('Tabela restaurada ausente. Consulte a hospedagem.');
                 foreach($s['old'] as $old) if(!isset($present[$old])) self::fail('Não foi possível confirmar a troca completa do banco. Consulte a hospedagem.');
                 $s['phase']='cleanup'; return;
             }
@@ -620,15 +724,22 @@ final class F2SB_Engine {
             foreach ($s['old'] as $old) $db->query('DROP TABLE IF EXISTS '.self::ident($old));
         } finally { $db->close(); }
         // Executa uma vez no primeiro bootstrap do WordPress, antes dos plugins normais.
-        if(!empty($s['manifest']['full_config']) && is_file($s['root'].'/wp-content/object-cache.php')) {
+        if((!empty($s['manifest']['full_config']) || !empty($s['migration'])) && is_file($s['root'].'/wp-content/object-cache.php')) {
             $dir=$s['root'].'/wp-content/mu-plugins';
             if(!is_dir($dir) && !mkdir($dir,0755,true)) self::fail('Falha ao preparar limpeza do cache de objetos.');
             $file=$dir.'/f2sb-cache-flush-'.substr(hash('sha256',$job),0,16).'.php';
             $code="<?php\nif (!defined('ABSPATH')) exit;\nwp_cache_flush();\n@unlink(__FILE__);\n";
             if(file_put_contents($file,$code)===false) self::fail('Falha ao agendar a limpeza do cache de objetos.');
         }
+        if(!empty($s['migration'])) {
+            $dir=$s['root'].'/wp-content/mu-plugins'; self::mkdir($dir); chmod($dir,0755);
+            $file=$dir.'/f2sb-migration-'.substr(hash('sha256',$job),0,16).'.php';
+            $code="<?php\nif(!defined('ABSPATH'))exit;\nadd_action('init',static function(){wp_cache_flush();delete_option('rewrite_rules');flush_rewrite_rules(true);@unlink(__FILE__);},999);\n";
+            if(file_put_contents($file,$code)===false) self::fail('Falha ao preparar a atualização das rotas do destino.'); chmod($file,0644);
+        }
         self::releaseMaintenance($s);
         $s['phase']='done'; $s['message']='Restauração concluída. Entre novamente e limpe o cache da hospedagem/CDN e de objetos.';
+        if(!empty($s['migration'])) $s['message']='Migração concluída. Entre no endereço do destino com o usuário e a senha do backup. Confira os plugins de cache e segurança antes de publicar.';
         $s['finished']=time();
     }
     public static function rollback($job,&$s,$cfg) {
@@ -718,7 +829,7 @@ final class F2SB_Engine {
         } finally { flock($lock,LOCK_UN); fclose($lock); }
     }
     public static function publicState($s) {
-        $keys=['type','phase','files','bytes','rows','table_i','tables','created','message','error','archive_bytes','zip_i','verified','applied','db_rows','rollback_i','destructive','failed_phase','directories','pause_until','site_paused','return_url','download_url'];
+        $keys=['type','phase','files','bytes','rows','table_i','tables','created','message','error','archive_bytes','zip_i','verified','applied','db_rows','rollback_i','destructive','failed_phase','directories','pause_until','site_paused','return_url','download_url','migration','home','siteurl'];
         $out=array_intersect_key($s,array_flip($keys));
         if(isset($s['manifest'])) $out['manifest']=array_intersect_key($s['manifest'],array_flip(['created','home','wp_version','php','files','bytes','rows','full_config','consistency']));
         return $out;

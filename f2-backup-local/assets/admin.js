@@ -24,7 +24,7 @@
     $('bar').removeAttribute('value');$('confirm').hidden=s.phase!=='ready';
     if(s.phase==='ready'){
       const m=s.manifest;$('detail').textContent=`Ponto de retorno: ${date(m.created)}\nOrigem: ${m.home}\nWordPress ${m.wp_version} · ${m.files} arquivos · ${size(m.bytes)}\n${m.rows} linhas do banco de dados`;
-      $('config-note').textContent=m.full_config?'O wp-config.php original também será recuperado. A conexão com o banco foi conferida.':'Backup legado: o wp-config.php atual será preservado. Gere um novo backup nesta versão para incluir a restauração da configuração original.';
+      $('config-note').textContent=s.migration?`Migração: ${m.home} → ${s.home}. A conexão, o prefixo e o wp-config.php do destino serão preservados. Use o usuário e a senha do backup após concluir.`:m.full_config?'O wp-config.php original também será recuperado. A conexão com o banco foi conferida.':'Backup legado: o wp-config.php atual será preservado. Gere um novo backup nesta versão para incluir a restauração da configuração original.';
     }
     if(['ready','done'].includes(s.phase)){$('bar').max=1;$('bar').value=1;}
   }
@@ -62,7 +62,7 @@
   ['dragenter','dragover'].forEach(name=>$('drop').addEventListener(name,e=>{e.preventDefault();$('drop').classList.add('dragging');}));
   ['dragleave','drop'].forEach(name=>$('drop').addEventListener(name,e=>{e.preventDefault();$('drop').classList.remove('dragging');}));
   $('drop').addEventListener('drop',e=>{if(e.dataTransfer.files.length){$('file').files=e.dataTransfer.files;filename();}});
-  $('upload').onclick=async()=>{if(busy)return;const file=$('file').files[0];if(!file){$('file').click();return;}setBusy(true);$('confirm').hidden=true;reveal();$('title').textContent='Enviando seu ponto de retorno';try{const {id}=await api('start_upload',{size:file.size});active=id;for(let offset=0;offset<file.size;offset+=1048576){await api('upload_chunk',{id,offset,chunk:file.slice(offset,offset+1048576)});$('bar').max=file.size;$('bar').value=Math.min(offset+1048576,file.size);$('status').textContent=`${size(Math.min(offset+1048576,file.size))} de ${size(file.size)}`;}await run(id);}catch(e){error(e);}finally{setBusy(false);}};
+  $('upload').onclick=async()=>{if(busy)return;const file=$('file').files[0];if(!file){$('file').click();return;}setBusy(true);$('confirm').hidden=true;reveal();$('title').textContent='Enviando seu ponto de retorno';try{const {id}=await api('start_upload',{size:file.size,migrate:$('migrate').checked?'1':'0',source_root:$('source-root').value.trim()});active=id;for(let offset=0;offset<file.size;offset+=1048576){await api('upload_chunk',{id,offset,chunk:file.slice(offset,offset+1048576)});$('bar').max=file.size;$('bar').value=Math.min(offset+1048576,file.size);$('status').textContent=`${size(Math.min(offset+1048576,file.size))} de ${size(file.size)}`;}await run(id);}catch(e){error(e);}finally{setBusy(false);}};
   $('restore').onclick=async()=>{if(busy)return;if($('word').value!=='RESTAURAR'){$('word').focus();return;}setBusy(true);try{executor(await api('start_restore',{id:active,confirm:'RESTAURAR'}));}catch(e){error(e);}};
   $('refresh').onclick=()=>{if(!busy)list().catch(error);};$('filter').onchange=render;
   document.querySelectorAll('.f2sb-nav>a').forEach(a=>a.onclick=()=>{document.querySelectorAll('.f2sb-nav>a').forEach(b=>b.classList.remove('active'));a.classList.add('active');});

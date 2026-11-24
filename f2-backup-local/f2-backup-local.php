@@ -2,7 +2,7 @@
 /**
  * Plugin Name: F2 Bakup
  * Description: Backup completo em ZIP e restauração local em etapas, sem serviço externo ou licença.
- * Version: 1.2.2
+ * Version: 1.3.0
  * Requires at least: 6.4
  * Requires PHP: 8.1
  * Author: F2Digital
@@ -126,6 +126,10 @@ final class F2SB_Plugin {
                 if(!$size || $size<100) F2SB_Engine::fail('Escolha um arquivo ZIP válido.');
                 $free=disk_free_space($dir);
                 if($free!==false && $free<$size+134217728) F2SB_Engine::fail('Espaço insuficiente para receber o ZIP.');
+                $s['requested_migration']=($_POST['migrate']??'')==='1';
+                $oldRoot=trim(wp_unslash($_POST['source_root']??''));
+                if(strlen($oldRoot)>2048 || str_contains($oldRoot,"\0") || ($oldRoot!=='' && !preg_match('~^(?:/|[A-Za-z]:[\\\\/])~',$oldRoot))) F2SB_Engine::fail('Informe um caminho absoluto válido da origem ou deixe vazio.');
+                $s['source_root']=$oldRoot;
                 $s['upload_size']=$size; $s['upload_offset']=0; file_put_contents($dir.'/backup.zip','');
                 F2SB_Engine::save($dir.'/state.json',$s);
                 wp_send_json_success(['id'=>$id]);

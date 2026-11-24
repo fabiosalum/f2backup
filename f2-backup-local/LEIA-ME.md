@@ -1,8 +1,8 @@
-# F2 Bakup — 1.2.2
+# F2 Bakup — 1.3.0
 
 Um ponto de retorno para seu WordPress, com painel próprio, arquivo ZIP, restauração completa e atualizações manuais pelo botão.
 
-## Instalar ou substituir a versão 1.0
+## Instalar ou atualizar
 
 Em **Plugins → Adicionar plugin → Enviar plugin**, envie `f2-backup-local.zip`, sem descompactar. Se o plugin já estiver instalado, escolha **Substituir o atual pelo enviado**. Ative e abra **Ferramentas → F2 Bakup**.
 
@@ -10,7 +10,7 @@ Este ZIP instala o plugin. O ZIP do site é outro arquivo, gerado pelo botão **
 
 ## O que significa voltar ao ponto salvo
 
-Nos backups novos desta versão, a restauração recupera:
+No mesmo ambiente, a restauração recupera:
 
 - Arquivos do núcleo, temas, plugins e respectivas versões.
 - Mídia, uploads e outros arquivos regulares dentro da raiz do WordPress.
@@ -54,13 +54,25 @@ Caso o banco ou um arquivo mude durante as verificações, o backup é rejeitado
 
 O link privado expira em 24 horas. O token está no fragmento do link e não é enviado como parâmetro de URL. A execução não depende da sessão antiga do WordPress.
 
-## Mesmo ambiente e configuração
+## Importar em um novo WordPress ou outra hospedagem
 
-A restauração exige o mesmo `home`, `siteurl` e prefixo. Como o `wp-config.php` original é recuperado, o host, nome, usuário e senha do banco precisam continuar iguais aos do backup. A conexão é conferida por fingerprint antes de alterar o site. Alterações de credenciais exigem preparar o ambiente; o plugin não sobrescreve silenciosamente com uma conexão antiga que deixaria o site fora do ar.
+1. Instale um WordPress novo no destino e ative o **F2 Bakup 1.3.0+**.
+2. Deixe **Importar em um novo WordPress** marcado e selecione o ZIP do backup. Não é necessário gerar novamente uma cópia 1.2.2 já concluída.
+3. Em cópias antigas, abra **Caminhos de backups antigos** e informe a pasta absoluta de origem se precisar adaptar caminhos salvos no banco. Cópias novas incluem esse metadado automaticamente.
+4. Clique em **Enviar e verificar backup**, confira origem e destino e digite **RESTAURAR**. O conteúdo atual do destino será substituído.
+5. Finalize e entre com o usuário e a senha que existiam no backup. Confira páginas, mídia, links permanentes, cache e segurança antes de publicar.
 
-É preciso um WordPress funcional com o plugin instalado para iniciar a restauração. Após reinstalar o WordPress no endereço original e com a mesma conexão/prefixo, você pode instalar este plugin e enviar o ZIP antigo. Esta versão não é instalador para uma hospedagem vazia nem migrador de domínio.
+A migração preserva o `wp-config.php` e usa a conexão e o prefixo atuais do destino. As tabelas são importadas com esse prefixo e as chaves de permissões dos usuários são adaptadas. URLs e caminhos são substituídos nos campos de texto, recalculando comprimentos da serialização PHP sem instanciar objetos; JSON com barras escapadas também é tratado. GUIDs, chaves primárias e campos binários são preservados. Cache de opções transitórias e regras antigas são descartados; as regras são regeneradas pelo WordPress no primeiro carregamento.
 
-Backups da versão 1.0 continuam sendo reconhecidos. Eles preservam o `wp-config.php` atual na restauração e não contêm metadados dos diretórios vazios. O painel identifica essa condição. **Gere um backup novo na versão 1.2 para usar a recuperação ampliada.**
+`.htaccess`, `web.config`, `.user.ini`, `php.ini`, `wordfence-waf.php`, drop-ins `db.php`, `object-cache.php` e `advanced-cache.php` do destino são preservados, sem importar as versões da origem. O plugin F2 Bakup atual também é mantido para evitar uma regressão ao código antigo do backup. Configurações externas, licenças e plugins dependentes da hospedagem precisam ser conferidos no destino. A versão do núcleo e os demais plugins serão os contidos no backup; esse fluxo não atualiza o núcleo ao migrar.
+
+Dados com serialização customizada que necessitem alterações e formatos serializados inválidos interrompem a operação antes da troca final do banco. Use a reversão de arquivos oferecida na página da operação. Multisite e mudanças para estruturas de diretórios WordPress não padrão não são suportados.
+
+## Restaurar no ambiente original
+
+Para recuperar o `wp-config.php` original, use o histórico ou desmarque a migração ao enviar o ZIP. Endereço, prefixo, conexão e pasta precisam corresponder à origem; diferenças são identificadas e apresentadas como migração antes da confirmação. Ao migrar, a configuração de conexão do destino sempre prevalece.
+
+É preciso um WordPress funcional com o plugin instalado para iniciar. Não é instalador para uma hospedagem sem WordPress. Backups 1.0 preservam a configuração atual e não contêm metadados de diretórios vazios.
 
 ## Falhas e reversão
 
